@@ -8,40 +8,16 @@ import P from "pino";
 import fs from "fs";
 import path from "path";
 import express from "express";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 app.use(express.static(__dirname));
 
 const sessions = new Map();
-const commands = new Map(); 
 const SESSION_BASE_PATH = './sessions/';
-const PREFIX = '.'; 
 
-// --- 🔌 Plugin Loader ---
-async function loadPlugins() {
-    const pluginFolder = path.join(__dirname, 'plugins');
-    if (!fs.existsSync(pluginFolder)) fs.mkdirSync(pluginFolder);
-
-    const files = fs.readdirSync(pluginFolder).filter(file => file.endsWith('.js'));
-    for (const file of files) {
-        try {
-            const filePath = pathToFileURL(path.join(pluginFolder, file)).href;
-            const { default: command } = await import(filePath);
-            if (command && command.name) {
-                commands.set(command.name, command);
-                console.log(`✅ Loaded: ${command.name}`);
-            }
-        } catch (e) {
-            console.error(`❌ Error loading ${file}:`, e);
-        }
-    }
-}
-
-// --- 🤖 Start Bot Session ---
 async function startBot(sessionId) {
     const sessionPath = path.join(SESSION_BASE_PATH, sessionId);
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
@@ -57,25 +33,51 @@ async function startBot(sessionId) {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Message Handler
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-        if (type !== 'notify') return;
-        const m = messages[0];
-        if (!m.message || m.key.fromMe) return;
+    sock.ev.on("connection.update", (update) => {
+        const { connection } = update;
+        if (connection === "open") {
+            console.log(`✅ ${sessionId} Connected!`);
+        }
+        if (connection === "close") {
+            setTimeout(() => startBot(sessionId), 5000);
+        }
+    });
 
-        const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
-        if (!body.startsWith(PREFIX)) return;
+    sessions.set(sessionId, sock);
+    return sock;
+}
 
-        const args = body.slice(PREFIX.length).trim().split(/ +/);
-        const cmdName = args.shift().toLowerCase();
+// പെയറിംഗ് കോഡിന് വേണ്ടിയുള്ള API
+app.get("/pair", async (req, res) => {
+    let { number } = req.query;
+    if (!number) return res.json({ error: "Number required" });
+    const sessionId = "session_" + number.replace(/\D/g, "");
 
-        const command = commands.get(cmdName);
-        if (command) {
-            try {
-                await command.execute(sock, m, args);
-            } catch (err) {
-                console.error(`Error in ${cmdName}:`, err);
-            }
+    try {
+        let sock = sessions.get(sessionId) || await startBot(sessionId);
+        await new Promise(r => setTimeout(r, 8000));
+        const code = await sock.requestPairingCode(number.replace(/\D/g, ""));
+        res.json({ sessionId, code });
+    } catch (err) {
+        res.json({ error: err.message });
+    }
+});
+
+// സെഷൻ സ്ട്രിംഗ് പേജിൽ കാണിക്കാൻ വേണ്ടിയുള്ള API
+app.get("/get-session", async (req, res) => {
+    const { sessionId } = req.query;
+    const credsPath = path.join(SESSION_BASE_PATH, sessionId, 'creds.json');
+    
+    if (fs.existsSync(credsPath)) {
+        const data = fs.readFileSync(credsPath);
+        // ഇവിടെ നമ്മൾ സെഷൻ ഫയലിനെ ഒരു സ്ട്രിംഗ് ആക്കി മാറ്റുന്നു
+        res.json({ success: true, session: data.toString('base64') });
+    } else {
+        res.json({ success: false });
+    }
+});
+
+app.listen(process.env.PORT || 3000, () => console.log("🌍 Server Online"));
         }
     });
 
