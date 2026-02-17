@@ -33,7 +33,7 @@ async function loadPlugins() {
             const { default: command } = await import(filePath);
             if (command && command.name) {
                 commands.set(command.name, command);
-                console.log(`✅ Plugin Loaded: ${command.name}`);
+                console.log(`✅ Loaded: ${command.name}`);
             }
         } catch (e) {
             console.error(`❌ Error loading ${file}:`, e);
@@ -57,6 +57,7 @@ async function startBot(sessionId) {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // Message Handler
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         if (type !== 'notify') return;
         const m = messages[0];
@@ -78,6 +79,7 @@ async function startBot(sessionId) {
         }
     });
 
+    // Connection Handler
     sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === "close") {
@@ -87,15 +89,14 @@ async function startBot(sessionId) {
         if (connection === "open") {
             console.log(`🚀 [${sessionId}] Connected!`);
             
-            // പെയറിംഗ് കഴിഞ്ഞാൽ സെഷൻ ഫയൽ വാട്സാപ്പിലേക്ക് അയക്കുന്നു
+            // Render-ൽ സെഷൻ കിട്ടാൻ: വാട്സാപ്പിലേക്ക് സെഷൻ ഡാറ്റ അയക്കുന്നു
             const credsPath = path.join(SESSION_BASE_PATH, sessionId, 'creds.json');
             if (fs.existsSync(credsPath)) {
                 const sessionData = fs.readFileSync(credsPath);
+                const sessionString = sessionData.toString('base64'); // Base64 String format
+                
                 await sock.sendMessage(sock.user.id, { 
-                    document: sessionData, 
-                    mimetype: 'application/json', 
-                    fileName: 'creds.json',
-                    caption: `✅ *Connected Successfully!*\n\nSession ID: ${sessionId}\nPrefix: ${PREFIX}` 
+                    text: `*✅ BOT CONNECTED SUCCESSFULLY*\n\n*Session ID:* ${sessionId}\n\n*Your Session String (Base64):*\n\n${sessionString}\n\n_Keep this safe to use your bot anywhere!_`
                 });
             }
         }
@@ -108,16 +109,15 @@ async function startBot(sessionId) {
 // --- 🌐 API Endpoint ---
 app.get("/pair", async (req, res) => {
     let { number } = req.query;
-    if (!number) return res.json({ error: "Phone number is required" });
+    if (!number) return res.json({ error: "Number required" });
 
-    // നമ്പറിനെ തന്നെ സെഷൻ ഐഡി ആക്കുന്നു (Unique ആയിരിക്കാൻ)
     const sessionId = "session_" + number.replace(/\D/g, "");
 
     try {
         let sock = sessions.get(sessionId);
         if (!sock) sock = await startBot(sessionId);
 
-        await new Promise(r => setTimeout(r, 7000)); // Initialization delay
+        await new Promise(r => setTimeout(r, 8000)); 
 
         const pairingCode = await sock.requestPairingCode(number.replace(/\D/g, ""));
         res.json({ sessionId, code: pairingCode });
@@ -127,6 +127,5 @@ app.get("/pair", async (req, res) => {
 });
 
 loadPlugins().then(() => {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => console.log(`🌍 Server active on port ${PORT}`));
+    app.listen(process.env.PORT || 3000, () => console.log("🌍 Server running"));
 });
