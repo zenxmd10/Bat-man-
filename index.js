@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "url";
 import ffmpegPath from 'ffmpeg-static';
 import fluentFfmpeg from 'fluent-ffmpeg';
 
-// FFmpeg സെറ്റപ്പ്
+// FFmpeg Setup
 fluentFfmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
@@ -25,7 +25,7 @@ const sessions = new Map();
 const commands = new Map();
 const SESSION_BASE_PATH = './sessions/';
 
-// --- 🔌 പ്ലഗിൻ ലോഡർ ---
+// --- 🔌 Plugin Loader ---
 async function loadPlugins() {
     const pluginFolder = path.join(__dirname, 'plugins');
     if (!fs.existsSync(pluginFolder)) fs.mkdirSync(pluginFolder, { recursive: true });
@@ -45,7 +45,7 @@ async function loadPlugins() {
     }
 }
 
-// --- 🤖 ബോട്ട് സ്റ്റാർട്ട് ലോജിക് ---
+// --- 🤖 Start Bot Session ---
 async function startBot(sessionId) {
     const sessionPath = path.join(SESSION_BASE_PATH, sessionId);
     if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
@@ -58,7 +58,8 @@ async function startBot(sessionId) {
         auth: state,
         logger: P({ level: "silent" }),
         printQRInTerminal: false,
-        browser: ["Batman-Bot", "Chrome", "20.0.04"],
+        // പെയറിംഗ് കോഡ് തെറ്റാകാതിരിക്കാൻ ഈ ബ്രൗസർ സെറ്റിംഗ്സ് സഹായിക്കും
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -74,27 +75,25 @@ async function startBot(sessionId) {
         }
     });
 
-    // കമാൻഡ് ഹാൻഡ്ലർ
+    // Message Logic
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         if (type !== 'notify') return;
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
 
-        const body = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || "";
-        const prefix = "."; // നിനക്ക് ഇഷ്ടമുള്ള പ്രിഫിക്സ് മാറ്റാം
+        const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
+        const prefix = "."; 
+        if (!body.startsWith(prefix)) return;
 
-        if (body.startsWith(prefix)) {
-            const args = body.slice(prefix.length).trim().split(/ +/);
-            const cmdName = args.shift().toLowerCase();
-            const command = commands.get(cmdName);
+        const args = body.slice(prefix.length).trim().split(/ +/);
+        const cmdName = args.shift().toLowerCase();
+        const command = commands.get(cmdName);
 
-            if (command) {
-                try {
-                    await command.execute(sock, m, args);
-                } catch (err) {
-                    console.error(`Error in ${cmdName}:`, err);
-                    await sock.sendMessage(m.key.remoteJid, { text: `❌ Error: ${err.message}` });
-                }
+        if (command) {
+            try {
+                await command.execute(sock, m, args);
+            } catch (err) {
+                console.error(err);
             }
         }
     });
@@ -103,25 +102,33 @@ async function startBot(sessionId) {
     return sock;
 }
 
-// --- 🌐 വെബ് API റൂട്ടുകൾ ---
+// --- 🌐 API Routes ---
 
-// പെയറിംഗ് കോഡ് എടുക്കാൻ
 app.get("/pair", async (req, res) => {
     let { number } = req.query;
-    if (!number) return res.json({ error: "Phone number is required" });
+    if (!number) return res.json({ error: "Number missing" });
     
+    // പഴയ സെഷൻ ഉണ്ടെങ്കിൽ അത് ക്ലിയർ ചെയ്യുന്നത് പെയറിംഗ് എറർ കുറയ്ക്കും
     const sessionId = "session_" + number.replace(/\D/g, "");
+    const sessionPath = path.join(SESSION_BASE_PATH, sessionId);
+    if (fs.existsSync(sessionPath)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+
     try {
-        let sock = sessions.get(sessionId) || await startBot(sessionId);
-        await new Promise(r => setTimeout(r, 6000));
+        let sock = await startBot(sessionId);
+        
+        // പെയറിംഗ് കോഡ് ജനറേറ്റ് ചെയ്യുന്നതിന് മുൻപ് സെർവർ സ്റ്റേബിൾ ആകാൻ 10 സെക്കൻഡ് നൽകുന്നു
+        await new Promise(r => setTimeout(r, 10000));
+        
         const code = await sock.requestPairingCode(number.replace(/\D/g, ""));
         res.json({ sessionId, code });
     } catch (err) {
-        res.json({ error: err.message });
+        console.error("Pairing Error:", err);
+        res.json({ error: "വാട്സാപ്പ് സെർവർ തിരക്കിലാണ്. അല്പസമയത്തിന് ശേഷം വീണ്ടും ശ്രമിക്കൂ." });
     }
 });
 
-// ലോഗിൻ ആയ ശേഷം സെഷൻ ഐഡി പേജിൽ കാണിക്കാൻ
 app.get("/get-session", (req, res) => {
     const { sessionId } = req.query;
     const credsPath = path.join(SESSION_BASE_PATH, sessionId, 'creds.json');
@@ -130,8 +137,6 @@ app.get("/get-session", (req, res) => {
         if (fs.existsSync(credsPath)) {
             const content = fs.readFileSync(credsPath, 'utf-8');
             const json = JSON.parse(content);
-            
-            // ലോഗിൻ പൂർത്തിയായെങ്കിൽ മാത്രമേ 'me' ഉണ്ടാകൂ
             if (json.creds && json.creds.me) {
                 const base64 = Buffer.from(content).toString('base64');
                 return res.json({ success: true, session: base64 });
@@ -141,8 +146,6 @@ app.get("/get-session", (req, res) => {
     res.json({ success: false });
 });
 
-// സെർവർ സ്റ്റാർട്ട്
 loadPlugins().then(() => {
-    const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => console.log(`🌍 Batman-Bot Server on port ${PORT}`));
+    app.listen(process.env.PORT || 3000, () => console.log("🌍 Server Ready on Render"));
 });
