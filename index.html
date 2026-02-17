@@ -1,58 +1,74 @@
-<div class="container">
-    <h2>WhatsApp Pairing</h2>
-    <input type="text" id="number" placeholder="91xxxxxxxxxx">
-    <button onclick="requestPairingCode()">Generate Code</button>
-    
-    <div id="result"></div>
-    <div id="pairingCode" style="display:none; font-size: 2rem; color: #25d366; margin: 20px 0;"></div>
-    
-    <div id="sessionArea" style="display:none; margin-top:20px; padding:15px; background:rgba(255,255,255,0.1); border-radius:10px;">
-        <p style="font-size: 0.8rem; color: #bb86fc;">YOUR SESSION ID:</p>
-        <textarea id="sessionString" style="width:100%; height:100px; background:transparent; color:white; border:none; word-break:break-all;" readonly></textarea>
-        <button onclick="copySession()" style="margin-top:10px; padding:5px;">Copy Session</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>WhatsApp Session Generator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: sans-serif; background: #0d001e; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { background: rgba(255,255,255,0.05); padding: 30px; border-radius: 20px; width: 350px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
+        input { width: 100%; padding: 12px; margin: 15px 0; border-radius: 8px; border: none; box-sizing: border-box; background: #1a1a2e; color: white; }
+        button { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #6200ee; color: white; cursor: pointer; font-weight: bold; }
+        #pairingCode { font-size: 2rem; color: #25d366; margin: 20px 0; display: none; font-weight: bold; letter-spacing: 5px; }
+        #sessionBox { display: none; margin-top: 20px; background: #000; padding: 10px; border-radius: 10px; border: 1px solid #25d366; }
+        textarea { width: 100%; height: 80px; background: transparent; color: #25d366; border: none; font-size: 10px; word-break: break-all; resize: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>WhatsApp Pairing</h3>
+        <input type="text" id="number" placeholder="91xxxxxxxxxx">
+        <button id="btn" onclick="getCode()">Get Code</button>
+        <div id="status" style="margin-top: 15px; font-size: 14px;"></div>
+        <div id="pairingCode"></div>
+        
+        <div id="sessionBox">
+            <p style="font-size: 12px; color: #bb86fc;">YOUR SESSION ID (BASE64)</p>
+            <textarea id="sessionString" readonly></textarea>
+            <button onclick="copySession()" style="background: #25d366; color: black; padding: 5px; margin-top: 5px;">Copy Session</button>
+        </div>
     </div>
-</div>
 
-<script>
-    let checkInterval;
+    <script>
+        let checker;
+        async function getCode() {
+            const num = document.getElementById('number').value;
+            const status = document.getElementById('status');
+            const codeDiv = document.getElementById('pairingCode');
+            if(!num) return alert("Enter Number!");
 
-    async function requestPairingCode() {
-        const num = document.getElementById('number').value;
-        const resDiv = document.getElementById('result');
-        const codeDiv = document.getElementById('pairingCode');
-        
-        resDiv.innerHTML = "⏳ Generating...";
-        
-        const response = await fetch(`/pair?number=${num}`);
-        const data = await response.json();
-        
-        if(data.code) {
-            resDiv.innerHTML = "✅ Link this code on WhatsApp. Waiting for connection...";
-            codeDiv.innerText = data.code;
-            codeDiv.style.display = 'block';
-            
-            // ലിങ്ക് ആയോ എന്ന് ഓരോ 5 സെക്കന്റിലും ചെക്ക് ചെയ്യുക
-            if(checkInterval) clearInterval(checkInterval);
-            checkInterval = setInterval(() => checkStatus(data.sessionId), 5000);
+            status.innerText = "⏳ Requesting Pairing Code...";
+            const res = await fetch(`/pair?number=${num}`);
+            const data = await res.json();
+
+            if(data.code) {
+                status.innerText = "✅ Link this code on your WhatsApp:";
+                codeDiv.innerText = data.code;
+                codeDiv.style.display = 'block';
+                // Start checking for session
+                if(checker) clearInterval(checker);
+                checker = setInterval(() => checkSession(data.sessionId), 4000);
+            } else {
+                status.innerText = "❌ Error: " + data.error;
+            }
         }
-    }
 
-    async function checkStatus(sid) {
-        const response = await fetch(`/get-session?sessionId=${sid}`);
-        const data = await response.json();
-        
-        if(data.success) {
-            clearInterval(checkInterval);
-            document.getElementById('sessionArea').style.display = 'block';
-            document.getElementById('sessionString').value = data.session;
-            document.getElementById('result').innerHTML = "🎉 Successfully Connected!";
+        async function checkSession(sid) {
+            const res = await fetch(`/get-session?sessionId=${sid}`);
+            const data = await res.json();
+            if(data.success) {
+                clearInterval(checker);
+                document.getElementById('status').innerText = "🎉 Connected Successfully!";
+                document.getElementById('sessionBox').style.display = 'block';
+                document.getElementById('sessionString').value = data.session;
+            }
         }
-    }
 
-    function copySession() {
-        const txt = document.getElementById('sessionString');
-        txt.select();
-        document.execCommand('copy');
-        alert("Session ID Copied!");
-    }
-</script>
+        function copySession() {
+            const area = document.getElementById('sessionString');
+            area.select();
+            document.execCommand('copy');
+            alert("Session Copied!");
+        }
+    </script>
+</body>
+</html>
