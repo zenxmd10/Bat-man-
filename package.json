@@ -1,0 +1,23 @@
+{
+  "name": "bat-man-bot",
+  "version": "2.0.0",
+  "description": "Full Feature WhatsApp Bot",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "express": "latest",
+    "axios": "latest",
+    "yt-search": "latest",
+    "yt-dlp-exec": "latest",
+    "mime-types": "latest",
+    "fs-extra": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest",
+    "ffmpeg-static": "latest",
+    "fluent-ffmpeg": "latest"
+  }
+}
